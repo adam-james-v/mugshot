@@ -1,6 +1,11 @@
 # mugshot
 A dumb little project. A Drawfee fan site.
 
+Check out the site so far:
+
+[Many Mugs of Drawfee](adam-james-v.github.io/mugshot/)
+
+
 This is a little side project written in Clojure.
 
 It takes a youtube URL with a timestamp and creates an SVG outline of the frame.
