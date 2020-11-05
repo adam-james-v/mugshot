@@ -1,0 +1,7 @@
+{:deps 
+ {org.clojure/clojure {:mvn/version "1.10.1"}
+  org.clojure/math.combinatorics {:mvn/version "0.1.6"}
+  hiccup              {:mvn/version "2.0.0-alpha2"}
+  hickory             {:mvn/version "0.7.1"}
+  forge/forge         {:local/root "../../dev/forge"}
+  stylo/stylo         {:local/root "../stylo"}}}
