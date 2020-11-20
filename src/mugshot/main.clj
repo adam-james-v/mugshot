@@ -28,17 +28,15 @@
       (s/replace #"&" "and")
       (s/replace #" " "-")))
 
-(defn delete [fname]
+(defn delete! [fname]
   (sh "rm" fname))
 
-(defn yt-playlist [url start end]
-  (let [output (-> (sh "youtube-dl" "-e" "-g" 
-                       "--playlist-start" (str start)
-                       "--playlist-end" (str end) url)
-                   (:out)
-                   (s/split-lines))]
-    (mapv #(zipmap [:title :video-url] (drop-last %))
-          (partition 3 output))))
+(defn parse-url [url]
+  (let [[url & rest] (s/split url #"[\?&]")
+        xr (map #(s/split % #"=") rest)
+        keys (map keyword (into [:url] (map first xr)))
+        vals (into [url] (map second xr))]
+    (zipmap keys vals)))
 
 (defn yt-url->video-data [url]
   (let [[title video-url _ descr]
@@ -49,52 +47,36 @@
      :descr descr
      :video-url video-url}))
 
-(defn parse-url [url]
-  (let [[url & rest] (s/split url #"[\?&]")
-        xr (map #(s/split % #"=") rest)
-        keys (map keyword (into [:url] (map first xr)))
-        vals (into [url] (map second xr))]
-    (zipmap keys vals)))
-
-(defn save-image [vid-url time fname]
+(defn save-image! [video-url time fname]
   (sh "ffmpeg" 
       "-ss" time
-      "-i" vid-url
+      "-i" video-url
       "-vframes" "1" 
       "-s" "1920x1080" 
       "-f" "image2" fname))
 
-(defn img->svg-old [fname]
-  (sh "./potrace" 
-      "--tight"
-      "--unit" "0.5"
-      "--svg"
-      "--flat" fname)
-  (delete fname)
-  (str (first (s/split fname #"\.")) ".svg"))
-
-(defn img->svg [fname & color?]
+(defn img->svg! [fname & color?]
   (let [new-fname (str (first (s/split fname #"\.")) ".svg")
         settings (if (first color?) 
-                   ["color" "-p" "7" "-f" "16" "-g" "36"] 
+                   ["color" "-p" "7" "-f" "16" "-g" "36"]
                    ["bw"])]
-    (apply sh (concat ["./vtracer"
+    (apply sh (concat ["vtracer"
                        "--mode" "polygon"
                        "--colormode"]
                       settings
                       ["--input" fname
                        "--output" new-fname]))
-    (delete fname)
+    (delete! fname)
     new-fname))
 
 (defn screenshot! [url]
   (let [urlp (parse-url url)
         data (yt-url->video-data (:url urlp))
-        vid-url (:video-url data)
+        video-url (:video-url data)
         name (clean-name (:title data))
         time (seconds->timestamp (read-string (:t urlp)))
         fname (str "output/" name ".png")]
-    (save-image vid-url time fname)
+    (save-image! video-url time fname)
     fname))
 
 (defn get-paths
@@ -145,7 +127,6 @@
       (s/replace #"[A-DF-Za-df-z]" #(str "\n" %))
       (s/triml)
       (s/split-lines)
-      #_(linify)
       (#(map get-numbers %))
       (#(filter (complement empty?) %))
       (#(mapv add-z %))))
@@ -190,10 +171,6 @@
           (for [path paths]
             (mapv #(f/v* [sc sc sc] %) path)))))
 
-(def mug-a (url->svg "https://youtu.be/IPAr7YazehQ?t=209"))
-(def mug-b (url->svg "https://youtu.be/u6B0tXrIpLY?t=495"))
-(def mug-c (url->svg "https://youtu.be/SgAXQRXmWMk?t=239"))
-
 ;; as of 2020-11-04
 (def drawfee-extra-mug-urls
   ["https://youtu.be/IPAr7YazehQ?t=209"
@@ -206,7 +183,7 @@
    "https://youtu.be/jnLoT9koWsw?t=401"
    "https://youtu.be/jPCT63Rj3vA?t=455"
    "https://youtu.be/QXOiN7IYAUk?t=446"
-   "https://youtu.be/i4clQyKVdoc?t=310"
+   "https://youtu.be/i4clQyKVdoc?t=300"
    "https://youtu.be/qPFW6B0OmG0?t=356"
    "https://youtu.be/qPFW6B0OmG0?t=838"
    "https://youtu.be/g30jp3WWXZ4?t=758"])
@@ -231,11 +208,14 @@
    "https://youtu.be/qGnsMMOOPKo?t=209"
    "https://youtu.be/4kcIZDUb4fo?t=173"])
 
+(def color-mugs
+ ["https://youtu.be/k4Ox4S-aAL4?t=97"])
+
 (defn url->svg
   [url]
   (-> url
       (screenshot!)
-      (img->svg)
+      (img->svg!)
       (slurp)))
 
 (defn svg->mug-pts
@@ -251,17 +231,16 @@
   (->> pts
        (apply f/polygon2)))
 
-(defn svg!
-  [name & content]
-  (let [fname (str name ".svg")]
-    (spit fname (html content))
-    fname))
+(defn path-polygon
+  [& pts]
+  (let [paths (map svg/path-polygon-str pts)]
+    (svg/path (apply str (interpose "\n" paths)))))
 
 (defn mug-pts->polygon2d-front
   [pts]
   (->> pts
        (mapv #(mapv drop-z %))
-       (#(mapv svg/path-polygon %))
+       (#(mapv path-polygon %))
        (#(apply svg/merge-paths %))))
 
 (defn simple-translate
@@ -276,7 +255,7 @@
          (mapv #(shape/isometric-xf %))
          (mapv #(simple-translate [mx my 0] %))
          (mapv #(mapv drop-z %))
-         (#(mapv svg/path-polygon %))
+         (#(mapv path-polygon %))
          (#(apply svg/merge-paths %)))))
 
 (defn mug-pts->polygon2d-right
@@ -298,7 +277,7 @@
          (mapv #(shape/rotate-points % [0 180 0]))
          (mapv #(simple-translate [mx my 0] %))
          (mapv #(mapv drop-z %))
-         (#(mapv svg/path-polygon %))
+         (#(mapv path-polygon %))
          (#(apply svg/merge-paths %)))))
 
 (def style-str 
@@ -318,6 +297,7 @@ html {
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
   transition: all 0.3s cubic-bezier(.25,.8,.25,1);
+  transform: rotateX(60deg) rotateY(0deg) rotateZ(-45deg);
 }
 .card:hover {
   box-shadow: 0 14px 28px rgba(0,0,0,0.25), 0 10px 10px rgba(0,0,0,0.22);
@@ -363,30 +343,30 @@ html {
                  (svg->mug-pts)
                  (resize 225)
                  (mug-pts->polygon2d-front)
-                 (svg/style-element {:fill "black"})
+                 (svg/style-element {:fill "#2e3440"})
                  (svg/dwg-2d [350 350 1]))]
     [:div.card
      [:a {:href url} drw]
-     [:h4.title (hiccup.util/escape-html (:title data))]
-     #_[:p (:descr data)]]))
+     [:h4.title (hiccup.util/escape-html (:title data))]]))
 
-(def mug-cache
-  (into 
-   []
-   (for [url (concat drawfee-extra-mug-urls
-                     old-drawfee-streams-mug-urls)]
-     (try
-       (url->card url)
-       (catch Exception e
-         nil)))))
-
-(defn save-cache! []
-  (spit "cache.edn" mug-cache))
+(defn try-url->card
+  [url]
+  (try (url->card url)
+       (catch Exception e nil)))
 
 (defn save-index! []
-  (->> mug-cache
-       (into [:div.container])
-       (html!)))
+  (let [urls (concat drawfee-extra-mug-urls
+                     old-drawfee-streams-mug-urls)]
+    (->> urls
+         (pmap try-url->card)
+         (into [:div.container])
+         (html!))))
+
+(defn svg!
+  [name & content]
+  (let [fname (str name ".svg")]
+    (spit fname (html content))
+    fname))
 
 (defn drawfee-demo!
   [url]
@@ -445,6 +425,10 @@ html {
     [(mapv first padded)
      (mapv second padded)]))
 
+(def svga (slurp "output/drawing-a-fancy-animal-party.svg"))
+(def svgb (slurp "output/anarchy-night-in-the-ladies-jurisdiction.svg"))
+(def svgc (slurp "output/cringetober-drawings.svg"))
+
 (defn drawfee-demo2!
   [svg1 svg2 svg3]
   (let [pts1 (->> svg1 (svg->mug-pts))
@@ -481,13 +465,30 @@ html {
            [1920 1080 0.5]
            (svg/g
             (->> anim
-                 (svg/style-element {:stroke "none"
+                 (svg/style-element {:transform "translate(500,500)"
+                                     :stroke "none"
                                      :fill "hotpink"})))))))
 
-(def mug-url "https://youtu.be/IPAr7YazehQ?t=209")
-
-;; a large drawing:
-;; Https://youtu.be/2q219S-odkQ?t=7873
-
-;; a mug:
-;; https://youtu.be/IPAr7YazehQ?t=209
+(def a (slurp "output/cringetober-drawings.svg"))
+(defn isometric-card-demo!
+  [svg]
+  (let [pts (->> svg
+                 (svg->mug-pts)
+                 (move-to-origin)
+                 (resize 100))
+        mug1 (->> pts (mug-pts->polygon2d-front) (svg/rotate 180))
+        mug2 (->> pts (mug-pts->polygon2d-iso) (svg/rotate 180))
+        p1 (get-in mug1 [1 :d])
+        p2 (get-in mug2 [1 :d])
+        anim [:path {:d p1}
+              [:animate {:attributeName "d"
+                         :values (str "\n" p1 ";\n" p2 ";\n" p1)
+                         :dur "4s"
+                         :repeatCount "indefinite"}]]]
+    (svg! "output/asdf"
+          (svg/dwg-2d
+           [300 420 1]
+           (svg/g
+            (->> mug2
+                 (svg/style-element {:stroke "none"
+                                     :fill "#2e3440"})))))))
