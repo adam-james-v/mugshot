@@ -298,10 +298,20 @@ html {
   box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
   transition: all 0.3s cubic-bezier(.25,.8,.25,1);
   transform: rotateX(60deg) rotateY(0deg) rotateZ(-45deg);
+  z-index: auto;
+  margin-left: -175px;
+  margin-bottom: -125px;
 }
 .card:hover {
   box-shadow: 0 14px 28px rgba(0,0,0,0.25), 0 10px 10px rgba(0,0,0,0.22);
   transform: scale(1.5);
+  z-index: 1000;
+}
+.card a {
+  display: none;
+}
+.card:hover a {
+  display: block;
 }
 .card svg {
   width: 93%;
@@ -315,11 +325,12 @@ html {
   margin: 0;
 }
 .container {
-  width: 1200px;
+  max-width: 800px;
   margin: 0 auto;
   display: flex;
   flex-flow: wrap;
   justify-content: center;
+  padding-left: 175px;
 }
 ")
 
@@ -346,8 +357,9 @@ html {
                  (svg/style-element {:fill "#2e3440"})
                  (svg/dwg-2d [350 350 1]))]
     [:div.card
-     [:a {:href url} drw]
-     [:h4.title (hiccup.util/escape-html (:title data))]]))
+     drw
+     [:h4.title (hiccup.util/escape-html (:title data))]
+     [:a {:href url} "video"]]))
 
 (defn try-url->card
   [url]
