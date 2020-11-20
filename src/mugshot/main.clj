@@ -208,7 +208,8 @@
    "https://youtu.be/QXOiN7IYAUk?t=446"
    "https://youtu.be/i4clQyKVdoc?t=310"
    "https://youtu.be/qPFW6B0OmG0?t=356"
-   "https://youtu.be/qPFW6B0OmG0?t=838"])
+   "https://youtu.be/qPFW6B0OmG0?t=838"
+   "https://youtu.be/g30jp3WWXZ4?t=758"])
 
 ;; as of 2020-11-04
 (def old-drawfee-streams-mug-urls
@@ -490,104 +491,3 @@ html {
 
 ;; a mug:
 ;; https://youtu.be/IPAr7YazehQ?t=209
-
-(defn bb-pts
-  [pts]
-  (let [pts (if (= 3 (count (first pts))) (mapv drop-z pts) pts)
-        [[ax ay] [bx by]] (f/bb-corners-2d pts)]
-    [[ax ay]
-     [bx ay]
-     [bx by]
-     [ax by]]))
-
-(defn bb-wh
-  [pts]
-  (let [pts (if (= 3 (count (first pts))) (mapv drop-z pts) pts)
-        [[ax ay] [bx by]] (f/bb-corners-2d pts)]
-    [(Math/abs (- bx ax)) (Math/abs (- by ay))]))
-
-(defn minimize-bb-h
-  [shape]
-  (let [ [mx my _] (mapv float (f/midpoint (:vertices shape)))
-        rs (for [angle (range 0 180 0.5)]
-             (let [xshape (-> shape
-                              (f/translate [(- mx) (- my) 0])
-                              (f/rotate [0 0 angle])
-                              (f/translate [mx my 0]))
-                   [nmx nmy _] (f/midpoint (:vertices xshape))
-                   [bbw bbh] (bb-wh (:vertices xshape))]
-               {:angle angle
-                :height bbh
-                :width bbw
-                :midpoint [nmx nmy]
-                :vertices [[(- mx (/ bbw 2.0)) my 0] 
-                           [(+ mx (/ bbw 2.0)) my 0]]}))]
-    (first (sort-by :height rs))))
-
-(defn idealize-endpoints-2d
-  [shape]
-  (let [xpts (sort-by first (:vertices shape))
-        ypts (sort-by second (:vertices shape))
-        pts [(first xpts)
-             (first ypts)
-             (first (reverse xpts)) 
-             (first (reverse ypts))]
-        pairs (combo/combinations pts 2)]
-    (mapv #(mapv float (f/midpoint %)) 
-          (take 2 (sort-by #(apply f/distance %) pairs)))))
-
-(defn ipad!
-  []
-  (->> "output/out.png"
-       (img->svg)
-       (slurp)
-       (svg->paths)
-       (mapcat split-path)
-       (mapv ->pts)))
-
-(defn ipad->forge
-  []
-  (->> "output/out.png"
-       (img->svg)
-       (slurp)
-       (svg->paths)
-       (mapcat split-path)
-       (mapv ->pts)
-       (#(apply f/polygon2 %))))
-
-(let [pts (ipad!)
-      [mx my _] (mapv float (f/midpoint (apply concat pts)))
-      xpts (-> pts
-               (#(apply f/polygon2 %))
-               (f/translate [(- mx) (- my) 0])
-               (f/rotate [0 0 0])
-               (f/translate [mx my 0]) 
-               (:vertices))
-      bb (svg/path-polygon (bb-pts xpts))
-      obj (->> [xpts]
-               (mapv #(mapv drop-z %))
-               (#(map svg/path-polygon %)) 
-               (#(apply svg/merge-paths %)))
-      data (minimize-bb-h (apply f/polygon2 pts))
-      ipts (mapv drop-z 
-                 (idealize-endpoints-2d 
-                  (apply f/polygon2 pts)))]
-  (svg! "output/test"
-        (svg/svg
-         [1024 1024 0.25]
-         (svg/style-element {:stroke "red"
-                             :stroke-width 5
-                             :fill "none"}
-                            bb)
-         (svg/style-element {:stroke "none"
-                             :fill "green"}
-                            (svg/g obj))
-         (svg/style-element {:stroke "hotpink"
-                             :stroke-width 15
-                             :fill "none"}
-                            (svg/path-polygon ipts))
-         (for [pt ipts]
-           (svg/translate 
-            pt
-            (svg/style-element {:fill "red"
-                                :opacity 0.5} (svg/circle 25)))))))

@@ -20,18 +20,22 @@
 
 #+end_src
 
-* flow
-- episode intro (first few seconds) is downloaded with yt-dl
-- metadata saved, incl. link to video
-- correct frame guessed
-- correct frame confirmed (with heuristics...)
-- correct frame saved as .png
-- frame manipulated:
-  - mask away the title (could be one of several)
-  - crop exactly to image 
-- frame converted to svg
-- svg and metadata combined into html
-- html appended to some site... 
+* design
+This project takes a Youtube URL with a timestamp and produces html code to display elements from the video on a fan page.
+
+It is specifically designed to build a fan site for the Drawfee channel. The Mug illustrations common at the beginning of their stream VODs and some older videos are the drawings of interest.
+
+Basically, the transformation this program performs is:
+
+https://youtu.be/IPAr7YazehQ?t=209 --> html component w/svg of the line art
+(drawfee drawing URL)              --> img/link on 'fan page' 
+
+** external dependencies
+This program requires a few installations
+ - youtube-dl
+ - ffmpeg 
+ - vtracer [[https://github.com/visioncortex/vtracer]]
+
 
 * ns
 #+BEGIN_SRC clojure :tangle ./src/mugshot/main.clj
@@ -276,7 +280,8 @@ Remove frames and blobs near the outer portions of the screenshot.
    "https://youtu.be/QXOiN7IYAUk?t=446"
    "https://youtu.be/i4clQyKVdoc?t=310"
    "https://youtu.be/qPFW6B0OmG0?t=356"
-   "https://youtu.be/qPFW6B0OmG0?t=838"])
+   "https://youtu.be/qPFW6B0OmG0?t=838"
+   "https://youtu.be/g30jp3WWXZ4?t=758"])
 
 ;; as of 2020-11-04
 (def old-drawfee-streams-mug-urls
@@ -597,140 +602,3 @@ https://youtu.be/k4Ox4S-aAL4?t=97
 ;; a mug:
 ;; https://youtu.be/IPAr7YazehQ?t=209
 #+END_SRC
-* sketch-to-path
-Start by creating an 'endpoint guesser'.
-
-Given a closed path (as a set of points) which is representing a line segment, find [x1 y1] [x2 y2] and draw an idealised version of the segment using only those endpoints.
-
-- find bb of shape
-- find midpoint of shape
-- rotate about midpoint until bb height is minimized
-- keep track of that rotation value
-- min/max x are just midpointx +/- half of the bb width
-- can make slight adjustments by 'guessing' the stroke thickness as the height of the bb at this rotation
-
-- make new line object with p1' and p2'
-- get final result by applying the reverse rotation on the new line object, giving you p1 p2
-
-
-notes to myself here.
-
-#+BEGIN_SRC clojure :tangle ./src/mugshot/main.clj
-(defn bb-pts
-  [pts]
-  (let [pts (if (= 3 (count (first pts))) (mapv drop-z pts) pts)
-        [[ax ay] [bx by]] (f/bb-corners-2d pts)]
-    [[ax ay]
-     [bx ay]
-     [bx by]
-     [ax by]]))
-
-(defn bb-wh
-  [pts]
-  (let [pts (if (= 3 (count (first pts))) (mapv drop-z pts) pts)
-        [[ax ay] [bx by]] (f/bb-corners-2d pts)]
-    [(Math/abs (- bx ax)) (Math/abs (- by ay))]))
-
-(defn minimize-bb-h
-  [shape]
-  (let [ [mx my _] (mapv float (f/midpoint (:vertices shape)))
-        rs (for [angle (range 0 180 0.5)]
-             (let [xshape (-> shape
-                              (f/translate [(- mx) (- my) 0])
-                              (f/rotate [0 0 angle])
-                              (f/translate [mx my 0]))
-                   [nmx nmy _] (f/midpoint (:vertices xshape))
-                   [bbw bbh] (bb-wh (:vertices xshape))]
-               {:angle angle
-                :height bbh
-                :width bbw
-                :midpoint [nmx nmy]
-                :vertices [[(- mx (/ bbw 2.0)) my 0] 
-                           [(+ mx (/ bbw 2.0)) my 0]]}))]
-    (first (sort-by :height rs))))
-
-(defn idealize-endpoints-2d
-  [shape]
-  (let [xpts (sort-by first (:vertices shape))
-        ypts (sort-by second (:vertices shape))
-        pts [(first xpts)
-             (first ypts)
-             (first (reverse xpts)) 
-             (first (reverse ypts))]
-        pairs (combo/combinations pts 2)]
-    (mapv #(mapv float (f/midpoint %)) 
-          (take 2 (sort-by #(apply f/distance %) pairs)))))
-
-#+END_SRC
-
-** quick-draw-helper
-#+BEGIN_SRC clojure :tangle ./src/mugshot/main.clj
-(defn ipad!
-  []
-  (->> "output/out.png"
-       (img->svg)
-       (slurp)
-       (svg->paths)
-       (mapcat split-path)
-       (mapv ->pts)))
-
-(defn ipad->forge
-  []
-  (->> "output/out.png"
-       (img->svg)
-       (slurp)
-       (svg->paths)
-       (mapcat split-path)
-       (mapv ->pts)
-       (#(apply f/polygon2 %))))
-
-(let [pts (ipad!)
-      [mx my _] (mapv float (f/midpoint (apply concat pts)))
-      xpts (-> pts
-               (#(apply f/polygon2 %))
-               (f/translate [(- mx) (- my) 0])
-               (f/rotate [0 0 0])
-               (f/translate [mx my 0]) 
-               (:vertices))
-      bb (svg/path-polygon (bb-pts xpts))
-      obj (->> [xpts]
-               (mapv #(mapv drop-z %))
-               (#(map svg/path-polygon %)) 
-               (#(apply svg/merge-paths %)))
-      data (minimize-bb-h (apply f/polygon2 pts))
-      ipts (mapv drop-z 
-                 (idealize-endpoints-2d 
-                  (apply f/polygon2 pts)))]
-  (svg! "output/test"
-        (svg/svg
-         [1024 1024 0.25]
-         (svg/style-element {:stroke "red"
-                             :stroke-width 5
-                             :fill "none"}
-                            bb)
-         (svg/style-element {:stroke "none"
-                             :fill "green"}
-                            (svg/g obj))
-         (svg/style-element {:stroke "hotpink"
-                             :stroke-width 15
-                             :fill "none"}
-                            (svg/path-polygon ipts))
-         (for [pt ipts]
-           (svg/translate 
-            pt
-            (svg/style-element {:fill "red"
-                                :opacity 0.5} (svg/circle 25)))))))
-
-#+END_SRC
-
-The algorithm works ok.
-
-One issue is that the endpoints are 'offset' a bit. This seems to be coming from midpoint assumptions.
-
-I suspect that the bounding box midpoint is not perfectly stable through full rotations of the line.
-
-Theoretically, it doesn't matter, but it can affect final positioning.
-
-
-If you know that you're looking at what is supposed to be a line segment... you could jsut pick the correct 2 points from the bounding box... this might be the smarter approach.
-
